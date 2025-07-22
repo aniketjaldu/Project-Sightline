@@ -1,8 +1,9 @@
 """
-ByteTrack Integration Module
+Sightline Custom Tracking Module
 
-This module provides ByteTrack-based tracking for both training data processing
-and inference, ensuring consistency across the entire pipeline.
+This module provides a custom tracking implementation inspired by ByteTrack
+for both training data processing and inference, ensuring consistency across the entire pipeline.
+Note: This is NOT the official ByteTrack implementation.
 """
 
 import json
@@ -11,11 +12,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import math
 
-from config import BYTETRACK_CONFIG
+from core.config import SIGHTLINE_TRACKER_CONFIG, CLASS_MAPPING
 from utils.logger import setup_logger
 
 class SimpleTracker:
-    """Simplified tracker that mimics ByteTrack behavior for bidirectional consistency"""
+    """Simplified custom tracker for Sightline project with bidirectional consistency"""
     
     def __init__(self, track_id: int):
         self.track_id = track_id
@@ -41,19 +42,20 @@ class SimpleTracker:
         self.time_since_update += 1
         return self.last_center
 
-class ByteTrackProcessor:
+class SightlineTracker:
     """
-    Unified ByteTrack processor for both training and inference workflows
+    Custom Sightline tracker for both training and inference workflows
+    (formerly named ByteTrackProcessor - this is NOT the official ByteTrack)
     """
     
     def __init__(self):
         self.logger = setup_logger(self.__class__.__name__)
-        self.config = BYTETRACK_CONFIG
+        self.config = SIGHTLINE_TRACKER_CONFIG
         self.next_track_id = 0
         
     def process_training_annotations(self, labelbox_data: Dict) -> List[Dict]:
         """
-        Process Labelbox training annotations using ByteTrack to create consistent tracks
+        Process Labelbox training annotations using custom tracking to create consistent tracks
         
         Args:
             labelbox_data: Raw Labelbox annotation data
@@ -87,13 +89,13 @@ class ByteTrackProcessor:
             
             detection['bbox_normalized'] = [x_center, y_center, width, height]
         
-        self.logger.info(f"Training ByteTrack: {len(detections)} detections → {len(tracked_detections)} tracked")
+        self.logger.info(f"Training SightlineTracker: {len(detections)} detections → {len(tracked_detections)} tracked")
         
         return tracked_detections
     
     def process_inference_detections(self, yolo_detections: List[Dict]) -> List[Dict]:
         """
-        Process YOLO inference detections and apply ByteTrack tracking
+        Process YOLO inference detections and apply custom tracking
         This ensures consistent track IDs between training and inference
         
         Args:
@@ -174,7 +176,7 @@ class ByteTrackProcessor:
     
     def _apply_tracking(self, detections: List[Dict]) -> List[Dict]:
         """
-        Apply simplified tracking algorithm inspired by ByteTrack with Valorant optimizations
+        Apply simplified custom tracking algorithm with Valorant optimizations
         
         Args:
             detections: List of detection dictionaries
@@ -210,7 +212,7 @@ class ByteTrackProcessor:
             for track in active_tracks:
                 track.predict()
             
-            # Split detections by confidence (ByteTrack strategy)
+            # Split detections by confidence (two-stage strategy)
             high_conf_dets = [d for d in frame_dets if d['confidence'] >= self.config['track_thresh']]
             low_conf_dets = [d for d in frame_dets if d['confidence'] < self.config['track_thresh'] 
                            and d['confidence'] >= self.config['track_low_thresh']]
@@ -307,53 +309,4 @@ class ByteTrackProcessor:
     
     def _calculate_distance(self, pos1: Tuple[float, float], pos2: Tuple[float, float]) -> float:
         """Calculate Euclidean distance between two positions"""
-        return math.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
-
-
-class UltralyticsTracker:
-    """
-    Wrapper for Ultralytics native tracking (for comparison/fallback)
-    """
-    
-    def __init__(self):
-        self.logger = setup_logger(self.__class__.__name__)
-    
-    def track_video(self, model, video_path: Path, config: Dict) -> List[Dict]:
-        """Use Ultralytics built-in tracking"""
-        try:
-            from ultralytics import YOLO
-            
-            # This would only work for inference, not training data processing
-            results = model.track(
-                source=str(video_path),
-                tracker=config.get('tracker_config', 'bytetrack.yaml'),
-                persist=True,
-                conf=config.get('track_low_thresh', 0.1),
-                save=False,
-                stream=True
-            )
-            
-            tracked_detections = []
-            for frame_idx, result in enumerate(results):
-                if result.boxes is not None and result.boxes.id is not None:
-                    boxes = result.boxes
-                    for i in range(len(boxes)):
-                        xyxy = boxes.xyxy[i].cpu().numpy()
-                        x1, y1, x2, y2 = xyxy
-                        
-                        detection = {
-                            'frame_number': frame_idx,
-                            'track_id': int(boxes.id[i].cpu().numpy()),
-                            'class_name': 'player',  # Adjust as needed
-                            'confidence': float(boxes.conf[i].cpu().numpy()),
-                            'bbox_pixel': [float(x1), float(y1), float(x2-x1), float(y2-y1)],
-                            'center_x': float((x1 + x2) / 2),
-                            'center_y': float((y1 + y2) / 2)
-                        }
-                        tracked_detections.append(detection)
-            
-            return tracked_detections
-            
-        except Exception as e:
-            self.logger.error(f"Ultralytics tracking failed: {e}")
-            return [] 
+        return math.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2) 

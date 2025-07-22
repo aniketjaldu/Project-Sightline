@@ -2,9 +2,7 @@ import json
 from pathlib import Path
 from typing import Optional
 from ultralytics import YOLO
-from config import (
-    YOLO_CONFIG, MODELS_DIR, DATASET_DIR, ensure_directories
-)
+from core.config import YOLO_CONFIG, MODELS_DIR, DATASET_DIR, ensure_directories
 from utils.logger import setup_logger
 
 class YOLOModelTrainer:

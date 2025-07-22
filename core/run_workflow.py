@@ -25,8 +25,8 @@ import json
 from pathlib import Path
 from typing import List
 
-from main_workflow import MainWorkflow
-from config import ensure_directories, MODELS_DIR
+from core.main_workflow import MainWorkflow
+from core.config import ensure_directories, MODELS_DIR
 from utils.logger import setup_logger
 
 def validate_data_row_ids(data_row_ids: List[str]) -> bool:
@@ -104,6 +104,110 @@ def run_training_workflow(args, workflow: MainWorkflow) -> bool:
         print("="*60)
         return False
 
+def run_comparison_workflow(args, workflow: MainWorkflow) -> bool:
+    """Run tracking method comparison workflow"""
+    logger = setup_logger("COMPARISON_WORKFLOW")
+    
+    # Validate arguments
+    if not args.output_dir:
+        logger.error("--output-dir is required for compare mode")
+        return False
+    
+    if not args.inference_ids:
+        logger.error("--inference-ids is required for compare mode")
+        return False
+    
+    # Find model
+    try:
+        if args.model_path:
+            model_path = find_model_file(args.model_path)
+        elif args.model_name:
+            model_path = find_model_file(args.model_name)
+        else:
+            logger.error("Either --model-path or --model-name must be specified for comparison")
+            return False
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        return False
+    
+    from enhanced_inference_runner import EnhancedInferenceRunner
+    
+    # Get comparison methods
+    comparison_methods = args.comparison_methods
+    output_dir = Path(args.output_dir)
+    
+    logger.info(f"Using model: {model_path}")
+    logger.info(f"Comparison methods: {comparison_methods}")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Comparing {len(args.inference_ids)} videos")
+    
+    runner = EnhancedInferenceRunner()
+    successful_comparisons = 0
+    all_results = {}
+    
+    for data_row_id in args.inference_ids:
+        logger.info(f"Processing comparison for data row: {data_row_id}")
+        
+        # Download video for comparison
+        try:
+            download_result = workflow.data_fetcher.fetch_and_download_complete(data_row_id)
+            if not download_result or 'video' not in download_result:
+                logger.error(f"Failed to download video for {data_row_id}")
+                continue
+            
+            video_path = download_result['video']
+            video_name = Path(video_path).stem
+            comparison_output_dir = output_dir / f"{video_name}_comparison"
+            
+            # Run comparison
+            comparison_result = runner.compare_tracking_methods(
+                model_path=model_path,
+                video_path=video_path,
+                output_dir=comparison_output_dir,
+                methods=comparison_methods,
+                data_row_id=data_row_id
+            )
+            
+            all_results[data_row_id] = comparison_result
+            
+            # Check if comparison was successful
+            successful_methods = sum(1 for result in comparison_result.values() if result.get('success', False))
+            if successful_methods > 0:
+                successful_comparisons += 1
+                logger.info(f"Comparison completed for {data_row_id}: {successful_methods}/{len(comparison_methods)} methods successful")
+            else:
+                logger.error(f"All comparison methods failed for {data_row_id}")
+                
+        except Exception as e:
+            logger.error(f"Error during comparison for {data_row_id}: {str(e)}")
+            continue
+    
+    # Print summary
+    print("\n" + "="*60)
+    print("TRACKING COMPARISON COMPLETED")
+    print("="*60)
+    print(f"Model Used: {model_path}")
+    print(f"Methods Compared: {', '.join(comparison_methods)}")
+    print(f"Output Directory: {output_dir}")
+    print(f"Successful Comparisons: {successful_comparisons}/{len(args.inference_ids)}")
+    print(f"Success Rate: {(successful_comparisons/len(args.inference_ids))*100:.1f}%")
+    
+    # Detailed results per video
+    for data_row_id, results in all_results.items():
+        print(f"\n📹 {data_row_id}:")
+        for method, result in results.items():
+            if result.get('success'):
+                annotations = result.get('annotations', {})
+                total_detections = sum(len(frame_annotations) for frame_annotations in annotations.get('frames', {}).values())
+                print(f"  ✅ {method.upper()}: {total_detections} detections, {result.get('total_frames', 0)} frames")
+                if result.get('output_video'):
+                    print(f"      📹 Video: {result['output_video']}")
+            else:
+                print(f"  ❌ {method.upper()}: Failed - {result.get('error', 'Unknown error')}")
+    
+    print("="*60)
+    return successful_comparisons == len(args.inference_ids)
+
 def run_inference_workflow(args, workflow: MainWorkflow) -> bool:
     """Run inference workflow"""
     logger = setup_logger("INFERENCE_WORKFLOW")
@@ -121,7 +225,11 @@ def run_inference_workflow(args, workflow: MainWorkflow) -> bool:
         logger.error(str(e))
         return False
     
+    # Get tracking method
+    tracking_method = getattr(args, 'tracking_method', 'sightline')
+    
     logger.info(f"Using model: {model_path}")
+    logger.info(f"Tracking method: {tracking_method.upper()}")
     logger.info(f"Running inference on {len(args.inference_ids)} videos")
     
     successful_inferences = 0
@@ -133,7 +241,8 @@ def run_inference_workflow(args, workflow: MainWorkflow) -> bool:
         result = workflow.run_complete_inference_workflow(
             inference_data_row_id=data_row_id,
             model_path=model_path,
-            import_to_labelbox=not args.no_import
+            import_to_labelbox=not args.no_import,
+            tracking_method=tracking_method
         )
         
         results[data_row_id] = result
@@ -148,6 +257,7 @@ def run_inference_workflow(args, workflow: MainWorkflow) -> bool:
     print("INFERENCE WORKFLOW COMPLETED")
     print("="*60)
     print(f"Model Used: {model_path}")
+    print(f"Tracking Method: {tracking_method.upper()}")
     print(f"Successful Inferences: {successful_inferences}/{len(args.inference_ids)}")
     print(f"Success Rate: {(successful_inferences/len(args.inference_ids))*100:.1f}%")
     
@@ -173,7 +283,8 @@ def run_full_pipeline(args, workflow: MainWorkflow) -> bool:
     result = workflow.run_full_pipeline(
         training_data_row_id=args.training_id,
         inference_data_row_ids=args.inference_ids,
-        model_name=args.model_name
+        model_name=args.model_name,
+        tracking_method=getattr(args, 'tracking_method', 'sightline')
     )
     
     if result['success']:
@@ -254,9 +365,10 @@ def main():
     )
     
     parser.add_argument(
-        '--mode', 
-        choices=['full', 'training', 'inference', 'status'],
+        '--mode',
+        type=str,
         required=True,
+        choices=['training', 'inference', 'full', 'status', 'compare'],
         help='Workflow mode to run'
     )
     
@@ -292,6 +404,29 @@ def main():
     )
     
     parser.add_argument(
+        '--tracking-method',
+        type=str,
+        choices=['sightline', 'bytetrack', 'botsort'],
+        default='sightline',
+        help='Tracking method to use (default: sightline)'
+    )
+    
+    parser.add_argument(
+        '--comparison-methods',
+        type=str,
+        nargs='+',
+        choices=['sightline', 'bytetrack', 'botsort'],
+        default=['sightline', 'bytetrack', 'botsort'],
+        help='Tracking methods to compare (default: all methods)'
+    )
+    
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        help='Output directory for comparison results (required for compare mode)'
+    )
+    
+    parser.add_argument(
         '--workflow-id',
         type=str,
         help='Custom workflow ID (optional)'
@@ -321,7 +456,8 @@ def main():
     
     # Initialize workflow
     ensure_directories()
-    workflow = MainWorkflow(workflow_id=args.workflow_id)
+    tracking_method = getattr(args, 'tracking_method', 'sightline')
+    workflow = MainWorkflow(workflow_id=args.workflow_id, tracking_method=tracking_method)
     
     # Run workflow based on mode
     try:
@@ -334,6 +470,8 @@ def main():
         elif args.mode == 'status':
             show_workflow_status(workflow)
             success = True
+        elif args.mode == 'compare':
+            success = run_comparison_workflow(args, workflow)
         
         if success:
             print("\n🎉 Workflow completed successfully!")

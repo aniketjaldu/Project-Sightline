@@ -3,25 +3,26 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from data_fetcher import LabelboxDataFetcher
-from data_processor import DataProcessor
-from model_trainer import YOLOModelTrainer
-from inference_runner import YOLOInferenceRunner
-from annotation_importer import LabelboxAnnotationImporter
-from data_manager import DataManager
-from config import ensure_directories, INFERENCE_DIR
+from pipeline.data_fetcher import LabelboxDataFetcher
+from pipeline.data_processor import DataProcessor
+from core.model_trainer import YOLOModelTrainer
+from pipeline.inference_runner import YOLOInferenceRunner
+from pipeline.annotation_importer import LabelboxAnnotationImporter
+from pipeline.data_manager import DataManager
+from core.config import ensure_directories, get_workflow_directories, INFERENCE_DIR
 from utils.logger import setup_logger
 
 class MainWorkflow:
     """Main workflow orchestrator for Labelbox-YOLO pipeline"""
     
-    def __init__(self, workflow_id: Optional[str] = None):
+    def __init__(self, workflow_id: Optional[str] = None, tracking_method: str = "sightline"):
         self.workflow_id = workflow_id or f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.logger = setup_logger(self.__class__.__name__)
+        self.tracking_method = tracking_method.lower()
         
         # Initialize all components
         self.data_fetcher = LabelboxDataFetcher()
-        self.data_processor = DataProcessor()
+        self.data_processor = DataProcessor(tracking_method=self.tracking_method)
         self.model_trainer = YOLOModelTrainer()
         self.inference_runner = YOLOInferenceRunner()
         self.annotation_importer = LabelboxAnnotationImporter()
@@ -30,6 +31,7 @@ class MainWorkflow:
         ensure_directories()
         
         self.logger.info(f"Workflow initialized: {self.workflow_id}")
+        self.logger.info(f"Training tracking method: {self.tracking_method.upper()}")
     
     def run_complete_training_workflow(
         self, 
@@ -158,7 +160,8 @@ class MainWorkflow:
         self, 
         inference_data_row_id: str,
         model_path: Path,
-        import_to_labelbox: bool = True
+        import_to_labelbox: bool = True,
+        tracking_method: str = "sightline"
     ) -> Dict[str, Any]:
         """
         Run the complete inference workflow
@@ -202,13 +205,15 @@ class MainWorkflow:
             # Step 2: Run inference with annotated video output
             self.logger.info("Step 2: Running YOLO inference with annotated video output")
             video_name = download_result['video'].stem
-            output_video_path = INFERENCE_DIR / f"{video_name}_annotated.mp4"
+            workflow_dirs = get_workflow_directories(self.workflow_id)
+            output_video_path = workflow_dirs['inference']['results'] / f"{video_name}_annotated.mp4"
             
-            inference_result = self.inference_runner.run_bytetrack_inference_on_video(
+            inference_result = self.inference_runner.run_tracking_inference_on_video(
                 model_path=model_path,
                 video_path=download_result['video'],
                 output_video_path=output_video_path,  # Always generate annotated video
-                data_row_id=inference_data_row_id
+                data_row_id=inference_data_row_id,
+                tracking_method=tracking_method
             )
             
             if not inference_result:
@@ -220,7 +225,10 @@ class MainWorkflow:
                 'success': True,
                 'annotations_file': str(inference_result['annotations_file']),
                 'output_video': str(inference_result['output_video']) if inference_result['output_video'] else None,
-                'stats': inference_result['stats']
+                'stats': {
+                    'total_frames': inference_result.get('total_frames', 0),
+                    'tracking_method': tracking_method
+                }
             }
             
             # Step 3: Move inference video to dedicated directory
@@ -231,9 +239,9 @@ class MainWorkflow:
                 'moved_video_path': str(moved_videos[0]) if moved_videos else None
             }
             
-            # Step 4: Import annotations to Labelbox as MAL prelabels (if requested)
+            # Step 4: Import annotations to Labelbox as labels (if requested)
             if import_to_labelbox:
-                self.logger.info("Step 4: Importing annotations to Labelbox as MAL prelabels")
+                self.logger.info("Step 4: Importing annotations to Labelbox as labels")
                 import_job_id = self.annotation_importer.import_annotations_from_file(
                     annotations_file=inference_result['annotations_file'],
                     data_row_id=inference_data_row_id
@@ -261,10 +269,11 @@ class MainWorkflow:
             return results
     
     def run_full_pipeline(
-        self,
+        self, 
         training_data_row_id: str,
         inference_data_row_ids: List[str],
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        tracking_method: str = "sightline"
     ) -> Dict[str, Any]:
         """
         Run the complete pipeline: training + inference
@@ -309,7 +318,8 @@ class MainWorkflow:
                 inference_result = self.run_complete_inference_workflow(
                     inference_data_row_id=inference_data_row_id,
                     model_path=trained_model_path,
-                    import_to_labelbox=True
+                    import_to_labelbox=True,
+                    tracking_method=tracking_method
                 )
                 
                 pipeline_results['inference_results'][inference_data_row_id] = inference_result

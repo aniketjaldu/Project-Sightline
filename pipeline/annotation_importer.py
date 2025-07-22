@@ -5,22 +5,22 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 import labelbox as lb
 import labelbox.types as lb_types
-from config import (
+from core.config import (
     LABELBOX_API_KEY, LABELBOX_PROJECT_ID, LABELBOX_STATUS,
     CLASS_MAPPING, ensure_directories, INFERENCE_DIR,
-    BYTETRACK_CONFIG
+    SIGHTLINE_TRACKER_CONFIG
 )
-from bytetrack_integration import ByteTrackProcessor, UltralyticsTracker
+from pipeline.sightline_tracker import SightlineTracker
 from utils.logger import setup_logger, log_data_row_action
 import traceback
 
 class LabelboxAnnotationImporter:
-    """Class to handle importing annotations back to Labelbox using MAL (Model Assisted Labeling) only"""
+    """Class to handle importing annotations back to Labelbox as actual labels"""
     
     def __init__(self):
         self.logger = setup_logger(self.__class__.__name__)
         ensure_directories()
-        self.bytetrack_processor = ByteTrackProcessor()
+        self.sightline_tracker = SightlineTracker()
         
         if not LABELBOX_API_KEY:
             self.logger.warning("LABELBOX_API_KEY not set - Labelbox import functionality will be disabled")
@@ -147,7 +147,7 @@ class LabelboxAnnotationImporter:
             final_annotation_arrays = list(track_annotation_arrays.values())
             
             print(f"✅ Created {len(final_annotation_arrays)} annotation arrays (one per track)")
-            print(f"📋 Total tracks from ByteTrack: {len(track_annotation_arrays)}")
+            print(f"📋 Total tracks from Sightline: {len(track_annotation_arrays)}")
             print(f"📋 Total annotations: {len(all_annotations)}")
             print(f"🔍 Each array contains all frames for one track with temporal gap segment_index logic")
             
@@ -282,7 +282,7 @@ class LabelboxAnnotationImporter:
         global_key: str
     ) -> List[lb_types.VideoObjectAnnotation]:
         """
-        Convert ByteTrack annotations to VideoObjectAnnotation format with continuous temporal segments.
+        Convert Sightline tracking annotations to VideoObjectAnnotation format with continuous temporal segments.
         Creates placeholder annotations to fill gaps between actual detections.
         """
         all_detections = []
@@ -461,7 +461,7 @@ class LabelboxAnnotationImporter:
         
         self.logger.debug(f"✅ Continuous segment creation + frame-local segment_index assignment applied successfully")
         
-        self.logger.info(f"Applied ByteTrack annotation processing with CONTINUOUS SEGMENTS + FRAME-LOCAL INDEXING")
+        self.logger.info(f"Applied Sightline tracking annotation processing with CONTINUOUS SEGMENTS + FRAME-LOCAL INDEXING")
         self.logger.info(f"Converted {len(video_annotations)} video annotations for global key {global_key}")
         
         # Calculate tracking statistics
@@ -499,7 +499,7 @@ class LabelboxAnnotationImporter:
         # Get class name from the first annotation for logging
         class_name = video_annotations[0].name if video_annotations else "Unknown"
         
-        self.logger.info(f"  {class_name.title()}: {total_tracks} ByteTrack tracks across {total_frames} frames")
+        self.logger.info(f"  {class_name.title()}: {total_tracks} Sightline tracks across {total_frames} frames")
         self.logger.info(f"  Total keyframe annotations: {total_detections}")
         self.logger.info(f"  Continuous segments: {total_segments} ({tracks_with_gaps} tracks with temporal gaps)")
         self.logger.info(f"  Frame-local segment_index: 0,1,2... within each frame")
@@ -567,9 +567,9 @@ class LabelboxAnnotationImporter:
             
         return video_annotations
     
-    def _create_bytetrack_object_tracks(self, detections: List[Dict]) -> Dict[int, Dict]:
+    def _create_sightline_object_tracks(self, detections: List[Dict]) -> Dict[int, Dict]:
         """
-        Create object tracks from detections using ByteTrack algorithm
+        Create object tracks from detections using Sightline tracking algorithm
         
         Args:
             detections: List of detection dictionaries with frame, tool_name, bbox, etc.
@@ -577,7 +577,7 @@ class LabelboxAnnotationImporter:
         Returns:
             Dictionary mapping track_id to track data
         """
-        # Convert inference detections to format expected by ByteTrack processor
+        # Convert inference detections to format expected by Sightline tracker
         yolo_detections = []
         
         for detection in detections:
@@ -598,10 +598,10 @@ class LabelboxAnnotationImporter:
             }
             yolo_detections.append(yolo_detection)
         
-        # Apply ByteTrack tracking
-        tracked_detections = self.bytetrack_processor.process_inference_detections(yolo_detections)
+        # Apply Sightline tracking
+        tracked_detections = self.sightline_tracker.process_inference_detections(yolo_detections)
         
-        # Convert ByteTrack results back to the format expected by Labelbox conversion
+        # Convert Sightline tracking results back to the format expected by Labelbox conversion
         tracks = {}
         
         for detection in tracked_detections:
@@ -631,7 +631,7 @@ class LabelboxAnnotationImporter:
             
             tracks[track_id]['detections'].append(original_detection)
         
-        self.logger.info(f"ByteTrack created {len(tracks)} object tracks from {len(detections)} detections")
+        self.logger.info(f"Sightline tracker created {len(tracks)} object tracks from {len(detections)} detections")
         
         return tracks
     
@@ -722,13 +722,13 @@ class LabelboxAnnotationImporter:
             self.logger.error(f"Error getting/creating global key for data row {data_row_id}: {str(e)}")
             return None
     
-    def create_mal_annotation(
+    def create_label_annotation(
         self, 
         data_row_id: str, 
         yolo_annotations: Dict[str, Any]
     ) -> Optional[str]:
         """
-        Create and import annotation to Labelbox as MAL (Model Assisted Labeling) prelabels
+        Create and import annotation to Labelbox as actual labels (not just predictions)
         
         Args:
             data_row_id: Data row ID for the video
@@ -738,16 +738,18 @@ class LabelboxAnnotationImporter:
             Import job ID if successful, None otherwise
         """
         try:
-            self.logger.info(f"Creating MAL prelabels for data row: {data_row_id}")
-            log_data_row_action(data_row_id, "MAL_IMPORT_STARTED")
+            self.logger.info(f"Creating labels for data row: {data_row_id}")
+            log_data_row_action(data_row_id, "LABEL_IMPORT_STARTED")
             
             # Get global key for the data row
-            annotations_file = INFERENCE_DIR / f"{data_row_id}_annotations.json"
+            # Use temp directory for annotations file path since INFERENCE_DIR is now workflow-specific
+            from core.config import TEMP_INFERENCE
+            annotations_file = TEMP_INFERENCE / f"{data_row_id}_annotations.json"
             global_key = self._get_global_key_for_data_row(data_row_id, annotations_file)
             
             if not global_key:
                 self.logger.error(f"Could not determine global key for data row: {data_row_id}")
-                log_data_row_action(data_row_id, "MAL_IMPORT_FAILED_NO_GLOBAL_KEY")
+                log_data_row_action(data_row_id, "LABEL_IMPORT_FAILED_NO_GLOBAL_KEY")
                 return None
             
             # Extract video dimensions and store for bbox conversion
@@ -780,7 +782,7 @@ class LabelboxAnnotationImporter:
             
             if not annotation_arrays:
                 self.logger.warning(f"No annotations to import for data row: {data_row_id}")
-                log_data_row_action(data_row_id, "MAL_IMPORT_NO_ANNOTATIONS")
+                log_data_row_action(data_row_id, "LABEL_IMPORT_NO_ANNOTATIONS")
                 return None
             
             # Create label using proper lb_types format
@@ -804,14 +806,15 @@ class LabelboxAnnotationImporter:
                 print(f"    Frames: {frames[:5]}{'...' if len(frames) > 5 else ''}")
                 print(f"    Segment indices: {segment_indices[:5]}{'...' if len(segment_indices) > 5 else ''}")
             
-            print(f"🚀 Submitting {len(labels)} separate labels (one per track) to Labelbox MAL API")
+            print(f"🚀 Submitting {len(labels)} separate labels (one per track) to Labelbox Label API")
             
-            # Import as Model Assisted Labeling (prelabels)
-            upload_job = lb.MALPredictionImport.create_from_objects(
+            # Import as actual Labels (not just MAL predictions)
+            # This creates real labels that can be moved to review queues
+            upload_job = lb.LabelImport.create_from_objects(
                 client=self.client,
                 project_id=self.project.uid,
-                name=f"mal_import_{data_row_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                predictions=labels  # Submit list of labels, one per track
+                name=f"label_import_{data_row_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                labels=labels  # Submit list of labels, one per track
             )
             
             # Wait for the job to complete
@@ -823,26 +826,35 @@ class LabelboxAnnotationImporter:
                 for error in upload_job.errors:
                     error_details.append(str(error))
                 error_msg = "; ".join(error_details)
-                self.logger.error(f"MAL import job failed with errors: {error_msg}")
-                log_data_row_action(data_row_id, f"MAL_IMPORT_FAILED: {error_msg}")
+                self.logger.error(f"Label import job failed with errors: {error_msg}")
+                log_data_row_action(data_row_id, f"LABEL_IMPORT_FAILED: {error_msg}")
                 return None
             
             # Check upload status
             if upload_job.statuses:
                 for status in upload_job.statuses:
                     if hasattr(status, 'status') and status.status != 'SUCCESS':
-                        self.logger.error(f"MAL import status error: {status}")
-                        log_data_row_action(data_row_id, f"MAL_IMPORT_STATUS_ERROR: {status}")
+                        self.logger.error(f"Label import status error: {status}")
+                        log_data_row_action(data_row_id, f"LABEL_IMPORT_STATUS_ERROR: {status}")
                         return None
             
-            self.logger.info(f"Successfully imported MAL prelabels for data row: {data_row_id}")
-            log_data_row_action(data_row_id, "MAL_IMPORT_SUCCESS")
+            self.logger.info(f"Successfully imported labels for data row: {data_row_id}")
+            log_data_row_action(data_row_id, "LABEL_IMPORT_SUCCESS")
+            
+            # NEW: Automatically move datarow to "In review" status after successful import
+            self.logger.info(f"Attempting to move datarow {data_row_id} to 'In review' status")
+            review_success = self.move_datarow_to_review_status(data_row_id)
+            
+            if review_success:
+                self.logger.info(f"Successfully moved datarow {data_row_id} to review status")
+            else:
+                self.logger.warning(f"Label import successful but failed to move to review status. Manual action needed for {data_row_id}")
             
             return upload_job.uid
             
         except Exception as e:
-            self.logger.error(f"Error importing MAL annotation for {data_row_id}: {str(e)}")
-            log_data_row_action(data_row_id, f"MAL_IMPORT_ERROR: {str(e)}")
+            self.logger.error(f"Error importing labels for {data_row_id}: {str(e)}")
+            log_data_row_action(data_row_id, f"LABEL_IMPORT_ERROR: {str(e)}")
             return None
     
     def import_annotations_from_file(
@@ -851,7 +863,7 @@ class LabelboxAnnotationImporter:
         data_row_id: str
     ) -> Optional[str]:
         """
-        Import annotations from a YOLO inference file as MAL prelabels
+        Import annotations from a YOLO inference file as labels
         
         Args:
             annotations_file: Path to the annotation file
@@ -862,7 +874,7 @@ class LabelboxAnnotationImporter:
         """
         try:
             if not self.client:
-                self.logger.warning("Labelbox client not initialized - skipping MAL import")
+                self.logger.warning("Labelbox client not initialized - skipping label import")
                 return None
             
             if not annotations_file.exists():
@@ -873,8 +885,8 @@ class LabelboxAnnotationImporter:
             with open(annotations_file, 'r') as f:
                 yolo_annotations = json.load(f)
             
-            # Import to Labelbox as MAL
-            return self.create_mal_annotation(
+            # Import to Labelbox as labels
+            return self.create_label_annotation(
                 data_row_id=data_row_id,
                 yolo_annotations=yolo_annotations
             )
@@ -888,7 +900,7 @@ class LabelboxAnnotationImporter:
         annotation_files: List[Dict[str, Any]]
     ) -> Dict[str, str]:
         """
-        Bulk import multiple annotation files as MAL prelabels
+        Bulk import multiple annotation files as labels
         
         Args:
             annotation_files: List of dicts with 'file' and 'data_row_id' keys
@@ -914,7 +926,7 @@ class LabelboxAnnotationImporter:
             import time
             time.sleep(1)
         
-        self.logger.info(f"Bulk MAL import completed: {len(results)}/{len(annotation_files)} successful")
+        self.logger.info(f"Bulk label import completed: {len(results)}/{len(annotation_files)} successful")
         return results
     
     def validate_annotations(self, annotations: Dict[str, Any]) -> bool:
@@ -971,4 +983,89 @@ class LabelboxAnnotationImporter:
             
         except Exception as e:
             self.logger.error(f"Error validating annotations: {str(e)}")
+            return False 
+
+    def move_datarow_to_review_status(self, data_row_id: str) -> bool:
+        """
+        Move a datarow to "In review" status after successful annotation import
+        
+        Args:
+            data_row_id: The ID of the data row to move to review
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not self.client or not self.project:
+                self.logger.warning("Labelbox client not initialized - cannot change task status")
+                return False
+                
+            self.logger.info(f"Moving datarow {data_row_id} to 'In review' status")
+            
+            # Get the data row
+            data_row = self.client.get_data_row(data_row_id)
+            
+            # Method 1: Try to move via task queue (most common approach)
+            try:
+                # Get project task queues
+                task_queues = list(self.project.task_queues())
+                review_queue = None
+                
+                # Find the review queue (common names: "Review", "To Review", etc.)
+                for queue in task_queues:
+                    queue_name = queue.name.lower()
+                    if any(term in queue_name for term in ['review', 'to_review', 'in_review']):
+                        review_queue = queue
+                        break
+                
+                if review_queue:
+                    # Move data row to review queue using correct API signature
+                    try:
+                        # Method 1: Try with DataRowIds class (this works!)
+                        from labelbox.schema.identifiables import DataRowIds
+                        identifier = DataRowIds([data_row_id])
+                        self.project.move_data_rows_to_task_queue(
+                            data_row_ids=identifier,
+                            task_queue_id=review_queue.uid
+                        )
+                    except (ImportError, TypeError) as e1:
+                        try:
+                            # Method 2: Try with GlobalKeys as fallback
+                            from labelbox.schema.identifiables import GlobalKeys
+                            if data_row.global_key:
+                                identifier = GlobalKeys([data_row.global_key])
+                                self.project.move_data_rows_to_task_queue(
+                                    data_row_ids=identifier,
+                                    task_queue_id=review_queue.uid
+                                )
+                            else:
+                                raise Exception("No global key found")
+                        except Exception as e2:
+                            raise Exception(f"Both methods failed: {e1}, {e2}")
+                    self.logger.info(f"Successfully moved datarow {data_row_id} to review queue: {review_queue.name}")
+                    log_data_row_action(data_row_id, "MOVED_TO_REVIEW", f"Queue: {review_queue.name}")
+                    return True
+                else:
+                    self.logger.warning("No review queue found in project task queues")
+                    
+            except Exception as queue_error:
+                self.logger.warning(f"Task queue approach failed: {str(queue_error)}")
+            
+            # Method 2: Try to create a label with review status (if queues don't work)
+            try:
+                # This creates a label that needs review rather than moving to queue
+                # The exact implementation depends on your project's workflow setup
+                
+                self.logger.warning("Alternative method not yet implemented - manual review needed")
+                return False
+                
+            except Exception as label_error:
+                self.logger.warning(f"Label status approach failed: {str(label_error)}")
+            
+            self.logger.error(f"Failed to move datarow {data_row_id} to review status - no working method found")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Error moving datarow {data_row_id} to review status: {str(e)}")
+            log_data_row_action(data_row_id, "MOVE_TO_REVIEW_FAILED", str(e))
             return False 
