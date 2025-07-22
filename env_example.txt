@@ -1,0 +1,18 @@
+# Labelbox Configuration
+# Get your API key from: https://app.labelbox.com/account/api-keys
+LABELBOX_API_KEY=your_labelbox_api_key_here
+
+# Get your project ID from the Labelbox project URL
+# Example: https://app.labelbox.com/projects/PROJECT_ID_HERE/overview
+LABELBOX_PROJECT_ID=your_labelbox_project_id_here
+
+# Optional: Custom configuration
+# YOLO_DEVICE=0  # Use GPU 0, set to 'cpu' for CPU-only
+# YOLO_BATCH_SIZE=8
+# YOLO_EPOCHS=50
+# YOLO_IMG_SIZE=1080
+
+# Instructions:
+# 1. Copy this file to .env
+# 2. Replace the placeholder values with your actual Labelbox credentials
+# 3. Uncomment and modify optional configuration as needed 

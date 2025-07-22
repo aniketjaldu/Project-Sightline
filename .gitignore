@@ -1,0 +1,117 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Model files and weights
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+*.weights
+*.pb
+
+# Dataset and data files
+workflow_data/dataset/
+workflow_data/downloads/
+workflow_data/archive/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tiff
+*.gif
+
+# Logs and cache
+*.log
+workflow_data/logs/
+*.cache
+logs/
+
+# Inference outputs and results
+workflow_data/inference/
+*.json
+!ontology.json
+!**/dataset.yaml
+!requirements.txt
+
+# Training artifacts
+results/
+runs/
+wandb/
+*.csv
+confusion_matrix*.png
+*curve.png
+train_batch*.jpg
+val_batch*.jpg
+labels.jpg
+
+# System files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json 
