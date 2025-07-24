@@ -1,4 +1,4 @@
-# Python
+# Python bytecode and build artifacts
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,7 +7,6 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
 eggs/
 .eggs/
 lib/
@@ -26,9 +25,13 @@ venv/
 env/
 ENV/
 .venv/
-.env/
 
-# IDEs and editors
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE/editor/project files
 .vscode/
 .idea/
 *.swp
@@ -40,19 +43,7 @@ Thumbs.db
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Model files and weights
-*.pt
-*.pth
-*.onnx
-*.engine
-*.trt
-*.weights
-*.pb
-
-# Dataset and data files
-workflow_data/dataset/
-workflow_data/downloads/
-workflow_data/archive/
+# Media files (video, image) - ignore everywhere
 *.mp4
 *.avi
 *.mov
@@ -64,20 +55,36 @@ workflow_data/archive/
 *.tiff
 *.gif
 
-# Logs and cache
-*.log
-workflow_data/logs/
-*.cache
-logs/
+# Model weights and large binaries
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+*.weights
+*.pb
 
-# Inference outputs and results
-workflow_data/inference/
-*.json
-!ontology.json
-!**/dataset.yaml
-!requirements.txt
+# Project data outputs and logs
+project_data/temp/
+project_data/logs/
+project_data/archive/
+project_data/workflows/
 
-# Training artifacts
+# Ignore all files in models except configs/docs
+project_data/models/*
+!project_data/models/**/*.md
+!project_data/models/**/*.yaml
+!project_data/models/**/*.yml
+!project_data/models/**/*.json
+
+# Ignore all files in configs except configs/docs
+project_data/configs/*
+!project_data/configs/**/*.md
+!project_data/configs/**/*.yaml
+!project_data/configs/**/*.yml
+!project_data/configs/**/*.json
+
+# Training/inference artifacts
 results/
 runs/
 wandb/
@@ -88,18 +95,11 @@ train_batch*.jpg
 val_batch*.jpg
 labels.jpg
 
-# System files
-.DS_Store
-Thumbs.db
+# System temp files
 *.tmp
 *.temp
 
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Coverage reports
+# Coverage, test, and cache artifacts
 htmlcov/
 .tox/
 .coverage
@@ -110,8 +110,17 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
-
-# mypy
 .mypy_cache/
 .dmypy.json
-dmypy.json 
+dmypy.json
+
+# Logs (redundant, but explicit)
+*.log
+logs/
+
+# Do NOT ignore documentation or config templates
+!docs/
+!docs/**/*.md
+!requirements.txt
+!env_example.txt
+!README.md 

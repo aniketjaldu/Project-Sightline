@@ -1,0 +1,21 @@
+{
+  "model_name": "sightline",
+  "training_config": {
+    "device": "0",
+    "batch": 8,
+    "epochs": 50,
+    "imgsz": 1080,
+    "conf_threshold": 0.25,
+    "iou_threshold": 0.45,
+    "pretrained_model": "yolo11n.pt",
+    "max_det": 10
+  },
+  "results_dir": "C:\\Users\\Aniket Jaldu\\Documents\\Project Sightline - Group 12\\workflow_data\\models\\sightline",
+  "metrics": {
+    "metrics/precision(B)": 0.4528125948003466,
+    "metrics/recall(B)": 0.521484375,
+    "metrics/mAP50(B)": 0.3961492429288042,
+    "metrics/mAP50-95(B)": 0.2035503253074034,
+    "fitness": 0.22281021706954351
+  }
+}
