@@ -6,13 +6,18 @@ LABELBOX_API_KEY=your_labelbox_api_key_here
 # Example: https://app.labelbox.com/projects/PROJECT_ID_HERE/overview
 LABELBOX_PROJECT_ID=your_labelbox_project_id_here
 
-# Optional: Custom configuration
-# YOLO_DEVICE=0  # Use GPU 0, set to 'cpu' for CPU-only
-# YOLO_BATCH_SIZE=8
-# YOLO_EPOCHS=50
-# YOLO_IMG_SIZE=1080
+# YOLO Configuration (optional, override defaults below)
+# YOLO_DEVICE=0              # Use GPU 0 by default, set to 'cpu' for CPU-only
+# YOLO_BATCH_SIZE=8          # Batch size for training
+# YOLO_EPOCHS=50             # Number of training epochs
+# YOLO_IMG_SIZE=1080         # Image size for training/inference
+# YOLO_CONF_THRESHOLD=0.25   # Confidence threshold for detections
+# YOLO_IOU_THRESHOLD=0.45    # IoU threshold for NMS
+# YOLO_PRETRAINED_MODEL=yolo11n.pt  # Pretrained model to use if no existing model
+# YOLO_MAX_DET=10            # Max detections per image (Valorant: 10 players)
 
 # Instructions:
 # 1. Copy this file to .env
-# 2. Replace the placeholder values with your actual Labelbox credentials
-# 3. Uncomment and modify optional configuration as needed 
+# 2. Fill in your actual Labelbox credentials above (REQUIRED: LABELBOX_API_KEY, LABELBOX_PROJECT_ID)
+# 3. Uncomment and modify YOLO_* variables as needed to override defaults
+# 4. Save the file as .env in the project root 

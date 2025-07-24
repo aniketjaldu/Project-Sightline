@@ -1,5 +1,5 @@
 #!/bin/bash
-# Labelbox-YOLO Workflow Runner - Unix/Linux Shell Script
+# Project Sightline Workflow Runner - Unix/Linux Shell Script
 # This script provides both interactive and command-line access to the workflow
 
 set -e  # Exit on any error
@@ -13,7 +13,7 @@ if [ $# -gt 0 ]; then
 fi
 
 echo "===================================="
-echo "  Labelbox-YOLO Workflow Runner"
+echo "  Project Sightline Workflow Runner"
 echo "===================================="
 echo
 
@@ -50,7 +50,10 @@ fi
 if [ ! -f ".env" ]; then
     echo
     echo "Warning: .env file not found!"
-    echo "Please copy env_example.txt to .env and configure your credentials"
+    echo "Please copy env_example.txt to .env and configure your credentials."
+    echo "Required: LABELBOX_API_KEY, LABELBOX_PROJECT_ID"
+    echo "Optional: YOLO_DEVICE, YOLO_BATCH_SIZE, YOLO_EPOCHS, YOLO_IMG_SIZE, YOLO_CONF_THRESHOLD, YOLO_IOU_THRESHOLD, YOLO_PRETRAINED_MODEL, YOLO_MAX_DET"
+    echo "See README.md and env_example.txt for details."
     echo
     if [ -f "env_example.txt" ]; then
         echo "You can use this command: cp env_example.txt .env"
