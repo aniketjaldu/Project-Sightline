@@ -67,7 +67,7 @@ goto interactive_mode
 :batch_mode
 REM Non-interactive mode - pass all arguments to Python script
 call venv\Scripts\activate.bat
-python run_workflow.py %*
+python core/run_workflow.py %*
 exit /b %errorlevel%
 
 :interactive_mode
@@ -80,9 +80,10 @@ echo 4. Show Status
 echo 5. Custom Command
 echo 6. Help / Usage Examples
 echo 7. Exit
+echo 8. Compare Tracking Methods
 echo.
 
-set /p choice="Enter your choice (1-7): "
+set /p choice="Enter your choice (1-8): "
 
 if "%choice%"=="1" goto full_pipeline
 if "%choice%"=="2" goto training_only
@@ -91,6 +92,7 @@ if "%choice%"=="4" goto show_status
 if "%choice%"=="5" goto custom_command
 if "%choice%"=="6" goto show_help
 if "%choice%"=="7" goto exit
+if "%choice%"=="8" goto compare_mode
 goto invalid_choice
 
 :full_pipeline
@@ -125,11 +127,15 @@ if /i "!no_import!"=="y" set import_flag=--no-import
 set workflow_flag=
 if "!workflow_id!" neq "" set workflow_flag=--workflow-id "!workflow_id!"
 
+set /p tracking_method="Enter tracking method (sightline/bytetrack/botsort, default: sightline): "
+set tracking_flag=
+if not "!tracking_method!"=="" set tracking_flag=--tracking-method !tracking_method!
+
 echo.
-echo Running: python run_workflow.py --mode full --training-id "!training_id!" --inference-ids !inference_ids! --model-name "!model_name!" !import_flag! !workflow_flag!
+echo Running: python core/run_workflow.py --mode full --training-id "!training_id!" --inference-ids !inference_ids! --model-name "!model_name!" !import_flag! !workflow_flag! !tracking_flag!
 echo.
 
-python run_workflow.py --mode full --training-id "!training_id!" --inference-ids !inference_ids! --model-name "!model_name!" !import_flag! !workflow_flag!
+python core/run_workflow.py --mode full --training-id "!training_id!" --inference-ids !inference_ids! --model-name "!model_name!" !import_flag! !workflow_flag! !tracking_flag!
 goto end
 
 :training_only
@@ -155,10 +161,10 @@ set workflow_flag=
 if "!workflow_id!" neq "" set workflow_flag=--workflow-id "!workflow_id!"
 
 echo.
-echo Running: python run_workflow.py --mode training --training-id "!training_id!" --model-name "!model_name!" !workflow_flag!
+echo Running: python core/run_workflow.py --mode training --training-id "!training_id!" --model-name "!model_name!" !workflow_flag!
 echo.
 
-python run_workflow.py --mode training --training-id "!training_id!" --model-name "!model_name!" !workflow_flag!
+python core/run_workflow.py --mode training --training-id "!training_id!" --model-name "!model_name!" !workflow_flag!
 goto end
 
 :inference_only
@@ -208,17 +214,21 @@ if /i "!no_import!"=="y" set import_flag=--no-import
 set workflow_flag=
 if "!workflow_id!" neq "" set workflow_flag=--workflow-id "!workflow_id!"
 
+set /p tracking_method="Enter tracking method (sightline/bytetrack/botsort, default: sightline): "
+set tracking_flag=
+if not "!tracking_method!"=="" set tracking_flag=--tracking-method !tracking_method!
+
 echo.
-echo Running: python run_workflow.py --mode inference --inference-ids !inference_ids! !model_flag! !import_flag! !workflow_flag!
+echo Running: python core/run_workflow.py --mode inference --inference-ids !inference_ids! !model_flag! !import_flag! !workflow_flag! !tracking_flag!
 echo.
 
-python run_workflow.py --mode inference --inference-ids !inference_ids! !model_flag! !import_flag! !workflow_flag!
+python core/run_workflow.py --mode inference --inference-ids !inference_ids! !model_flag! !import_flag! !workflow_flag! !tracking_flag!
 goto end
 
 :show_status
 echo.
 echo === Workflow Status ===
-python run_workflow.py --mode status
+python core/run_workflow.py --mode status
 goto end
 
 :custom_command
@@ -242,10 +252,52 @@ if "!custom_cmd!"=="" (
 )
 
 echo.
-echo Running: python run_workflow.py !custom_cmd!
+echo Running: python core/run_workflow.py !custom_cmd!
 echo.
 
-python run_workflow.py !custom_cmd!
+python core/run_workflow.py !custom_cmd!
+goto end
+
+:compare_mode
+echo.
+echo === Compare Tracking Methods Mode ===
+echo This will compare tracking methods on inference videos using an existing model
+echo.
+set /p inference_ids="Enter inference data row IDs (space-separated): "
+if "!inference_ids!"=="" (
+    echo Error: At least one inference ID is required
+    goto end
+)
+set /p model_name="Enter model name (leave blank to use model path): "
+set model_flag=
+if not "!model_name!"=="" (
+    set model_flag=--model-name "!model_name!"
+) else (
+    set /p model_path="Enter model path: "
+    if "!model_path!"=="" (
+        echo Error: Model path is required
+        goto end
+    )
+    set model_flag=--model-path "!model_path!"
+)
+set /p output_dir="Enter output directory for comparison results: "
+if "!output_dir!"=="" (
+    echo Error: Output directory is required
+    goto end
+)
+set /p comparison_methods="Enter comparison methods (space-separated, default: sightline bytetrack botsort): "
+set comparison_flag=
+if not "!comparison_methods!"=="" (
+    set comparison_flag=--comparison-methods !comparison_methods!
+)
+set /p workflow_id="Enter custom workflow ID (optional): "
+set workflow_flag=
+if not "!workflow_id!"=="" set workflow_flag=--workflow-id "!workflow_id!"
+
+echo.
+echo Running: python core/run_workflow.py --mode compare --inference-ids !inference_ids! !model_flag! --output-dir "!output_dir!" !comparison_flag! !workflow_flag!
+echo.
+python core/run_workflow.py --mode compare --inference-ids !inference_ids! !model_flag! --output-dir "!output_dir!" !comparison_flag! !workflow_flag!
 goto end
 
 :show_help
@@ -272,6 +324,9 @@ echo    run_workflow.bat --mode full --training-id "train123" --inference-ids "i
 echo.
 echo 7. Show Status:
 echo    run_workflow.bat --mode status
+echo.
+echo 8. Compare Tracking Methods:
+echo    run_workflow.bat --mode compare --inference-ids "inf1" "inf2" --model-name "my_model" --output-dir "output_dir" --comparison-methods "sightline bytetrack botsort"
 echo.
 echo Note: You can run this script with command line arguments for batch processing,
 echo       or run it without arguments for interactive mode.

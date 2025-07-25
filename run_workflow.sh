@@ -8,7 +8,7 @@ set -e  # Exit on any error
 if [ $# -gt 0 ]; then
     # Activate virtual environment and run Python script with all arguments
     source venv/bin/activate 2>/dev/null || true
-    python3 run_workflow.py "$@"
+    python3 core/run_workflow.py "$@"
     exit $?
 fi
 
@@ -94,7 +94,7 @@ run_full_pipeline() {
     read -p "Enter custom workflow ID (optional): " workflow_id
     
     # Build command
-    cmd="python3 run_workflow.py --mode full --training-id \"$training_id\" --inference-ids $inference_ids --model-name \"$model_name\""
+    cmd="python3 core/run_workflow.py --mode full --training-id \"$training_id\" --inference-ids $inference_ids --model-name \"$model_name\""
     
     if [ "$no_import" = "y" ] || [ "$no_import" = "Y" ]; then
         cmd="$cmd --no-import"
@@ -127,7 +127,7 @@ run_training_only() {
     read -p "Enter custom workflow ID (optional): " workflow_id
     
     # Build command
-    cmd="python3 run_workflow.py --mode training --training-id \"$training_id\" --model-name \"$model_name\""
+    cmd="python3 core/run_workflow.py --mode training --training-id \"$training_id\" --model-name \"$model_name\""
     
     if [ -n "$workflow_id" ]; then
         cmd="$cmd --workflow-id \"$workflow_id\""
@@ -178,8 +178,16 @@ run_inference_only() {
     read -p "Skip importing to Labelbox? (y/N): " no_import
     read -p "Enter custom workflow ID (optional): " workflow_id
     
+    # Add tracking-method prompt
+    read -p "Enter tracking method (sightline/bytetrack/botsort, default: sightline): " tracking_method
+    if [ -n "$tracking_method" ]; then
+        tracking_flag="--tracking-method $tracking_method"
+    else
+        tracking_flag=""
+    fi
+
     # Build command
-    cmd="python3 run_workflow.py --mode inference --inference-ids $inference_ids $model_flag"
+    cmd="python3 core/run_workflow.py --mode inference --inference-ids $inference_ids $model_flag $tracking_flag"
     
     if [ "$no_import" = "y" ] || [ "$no_import" = "Y" ]; then
         cmd="$cmd --no-import"
@@ -200,7 +208,7 @@ run_inference_only() {
 show_status() {
     echo
     echo "=== Workflow Status ==="
-    python3 run_workflow.py --mode status
+    python3 core/run_workflow.py --mode status
 }
 
 # Function to run custom command
@@ -226,10 +234,48 @@ run_custom_command() {
     fi
     
     echo
-    echo "Running: python3 run_workflow.py $custom_cmd"
+    echo "Running: python3 core/run_workflow.py $custom_cmd"
     echo
     
-    python3 run_workflow.py $custom_cmd
+    python3 core/run_workflow.py $custom_cmd
+}
+
+# Function to run compare mode
+run_compare_mode() {
+    echo
+    echo "=== Compare Tracking Methods Mode ==="
+    echo "This will compare tracking methods on inference videos using an existing model"
+    echo
+    read -p "Enter inference data row IDs (space-separated): " inference_ids
+    validate_input "$inference_ids" "Inference IDs" || return 1
+    read -p "Enter model name (leave blank to use model path): " model_name
+    model_flag=""
+    if [ -n "$model_name" ]; then
+        model_flag="--model-name \"$model_name\""
+    else
+        read -p "Enter model path: " model_path
+        validate_input "$model_path" "Model path" || return 1
+        model_flag="--model-path \"$model_path\""
+    fi
+    read -p "Enter output directory for comparison results: " output_dir
+    validate_input "$output_dir" "Output directory" || return 1
+    read -p "Enter comparison methods (space-separated, default: sightline bytetrack botsort): " comparison_methods
+    if [ -n "$comparison_methods" ]; then
+        comparison_flag="--comparison-methods $comparison_methods"
+    else
+        comparison_flag=""
+    fi
+    read -p "Enter custom workflow ID (optional): " workflow_id
+    if [ -n "$workflow_id" ]; then
+        workflow_flag="--workflow-id \"$workflow_id\""
+    else
+        workflow_flag=""
+    fi
+    cmd="python3 core/run_workflow.py --mode compare --inference-ids $inference_ids $model_flag --output-dir \"$output_dir\" $comparison_flag $workflow_flag"
+    echo
+    echo "Running: $cmd"
+    echo
+    eval $cmd
 }
 
 # Function to show help
@@ -257,6 +303,9 @@ show_help() {
     echo
     echo "7. Show Status:"
     echo "   ./run_workflow.sh --mode status"
+    echo
+    echo "8. Compare Tracking Methods:"
+    echo "   ./run_workflow.sh --mode compare --inference-ids \"inf1\" \"inf2\" --model-name \"my_model\" --output-dir \"/path/to/output\" --comparison-methods \"sightline bytetrack botsort\""
     echo
     echo "Note: You can run this script with command line arguments for batch processing,"
     echo "      or run it without arguments for interactive mode."
@@ -300,6 +349,9 @@ while true; do
         7)
             echo "Goodbye!"
             exit 0
+            ;;
+        8)
+            run_compare_mode
             ;;
         *)
             echo "Invalid choice. Please try again."
