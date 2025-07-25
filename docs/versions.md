@@ -14,8 +14,6 @@
 - **pipeline/delete_prelabels.py**: v1.0 (final)
 - **utils/logger.py**: v1.0 (final)
 - **utils/workflow_manager.py**: v1.0 (final)
-- **run_workflow.bat**: v1.0 (final)
-- **run_workflow.sh**: v1.0 (final)
 
 ## Configuration Files
 - **env_example.txt**: v1.0 (final)

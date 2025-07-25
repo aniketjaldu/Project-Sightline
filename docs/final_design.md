@@ -29,7 +29,7 @@ graph TD
 - **Environment Configuration:** Uses `.env` for all secrets and tunable parameters, with a template provided.
 - **Extensible Tracking:** Tracking method is selectable per run, supporting both custom and official trackers.
 - **Reproducibility:** All scripts and configs are versioned; each run is self-contained.
-- **Interactive & Batch Modes:** Scripts support both interactive prompts and command-line arguments for automation.
+- **Interactive & Batch Modes:** The workflow supports both interactive prompts and command-line arguments for automation, and is run via `python -m core.run_workflow`.
 
 ## Rationale
 - **Labelbox Integration:** Chosen for its robust annotation tools and API.

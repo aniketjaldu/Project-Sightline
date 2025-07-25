@@ -53,16 +53,64 @@ Optional YOLO overrides:
 
 ## Running the Workflow
 
-You can use the provided scripts for both interactive and batch operation:
+Run the workflow directly using Python's module mode:
 
-- **Windows:** Run `run_workflow.bat` (double-click or from command line)
-- **Unix/Mac/Linux:** Run `./run_workflow.sh`
+```
+python -m core.run_workflow [arguments]
+```
 
-Both scripts:
-- Set up the environment and dependencies
-- Guide you through interactive options or accept command-line arguments
+This command works on all platforms (Windows, Mac, Linux) and supports both interactive and batch operation.
 
-See the script or use the `Help / Usage Examples` menu for command-line options.
+**Examples:**
+
+- Full pipeline (training + inference):
+  ```
+  python -m core.run_workflow --mode full --training-id TRAIN_ID --inference-ids INF_ID1 INF_ID2 --model-name my_model
+  ```
+- Training only:
+  ```
+  python -m core.run_workflow --mode training --training-id TRAIN_ID --model-name my_model
+  ```
+- Inference only:
+  ```
+  python -m core.run_workflow --mode inference --inference-ids INF_ID1 INF_ID2 --model-path path/to/model.pt
+  ```
+- Compare tracking methods:
+  ```
+  python -m core.run_workflow --mode compare --inference-ids INF_ID1 INF_ID2 --model-name my_model --output-dir output_dir --comparison-methods sightline bytetrack botsort
+  ```
+
+For all available options, run:
+```
+python -m core.run_workflow --help
+```
+
+---
+
+## Command-Line Parameters
+
+The following parameters are available for `python -m core.run_workflow`:
+
+| Parameter              | Type    | Choices                                 | Default     | Required For                | Description |
+|------------------------|---------|-----------------------------------------|-------------|-----------------------------|-------------|
+| `--mode`               | str     | training, inference, full, status, compare | —           | all                         | Workflow mode to run |
+| `--training-id`        | str     | —                                       | —           | training, full              | Data row ID for training data |
+| `--inference-ids`      | str+    | —                                       | —           | inference, full, compare    | Data row IDs for inference videos (space-separated) |
+| `--model-name`         | str     | —                                       | —           | training, inference, full, compare | Name for the trained model (for training) or existing model name (for inference/compare) |
+| `--model-path`         | str     | —                                       | —           | inference, compare (if not using --model-name) | Path to existing trained model |
+| `--no-import`          | flag    | —                                       | false       | any                         | Skip importing annotations back to Labelbox |
+| `--tracking-method`    | str     | sightline, bytetrack, botsort           | sightline   | inference, full             | Tracking method to use |
+| `--comparison-methods` | str+    | sightline, bytetrack, botsort           | all         | compare                     | Tracking methods to compare (space-separated) |
+| `--output-dir`         | str     | —                                       | —           | compare                     | Output directory for comparison results |
+| `--workflow-id`        | str     | —                                       | —           | optional                    | Custom workflow ID |
+
+**Notes:**
+- For `--inference-ids` and `--comparison-methods`, provide space-separated values.
+- For `--no-import`, just include the flag (no value needed) to skip importing results to Labelbox.
+- For a full list and help, run:
+  ```
+  python -m core.run_workflow --help
+  ```
 
 ---
 
