@@ -1,0 +1,21 @@
+{
+  "model_name": "demo_model",
+  "training_config": {
+    "device": "0",
+    "batch": 8,
+    "epochs": 10,
+    "imgsz": 1080,
+    "conf_threshold": 0.25,
+    "iou_threshold": 0.45,
+    "pretrained_model": "yolo11n.pt",
+    "max_det": 10
+  },
+  "results_dir": "C:\\Users\\Aniket Jaldu\\Documents\\Project Sightline - Group 12\\project_data\\models\\demo_model",
+  "metrics": {
+    "metrics/precision(B)": 0.38741862502118124,
+    "metrics/recall(B)": 0.5064805583250249,
+    "metrics/mAP50(B)": 0.34429903829192265,
+    "metrics/mAP50-95(B)": 0.14792316715682383,
+    "fitness": 0.16756075427033373
+  }
+}

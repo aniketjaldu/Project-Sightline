@@ -50,7 +50,7 @@ def find_model_file(model_name_or_path: str) -> Path:
     
     # Comprehensive search in multiple locations (same as training logic)
     possible_paths = [
-        MODELS_DIR / f"{model_name_or_path}.pt",  # Standard location
+        MODELS_DIR / "active" / f"{model_name_or_path}.pt",  # Standard location
         MODELS_DIR / model_name_or_path / "weights" / "best.pt",  # Training output location
         MODELS_DIR / model_name_or_path / "weights" / "last.pt",  # Fallback training location
         Path(f"{model_name_or_path}.pt"),  # Current directory with .pt

@@ -1,15 +1,18 @@
 import json
-import cv2
-import math
+import time
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Optional
+from datetime import datetime
+import cv2
+
+from ultralytics import YOLO
 from core.config import (
-    CLASS_MAPPING, DATASET_DIR, LABELBOX_PROJECT_ID, 
-    ensure_directories, SIGHTLINE_TRACKER_CONFIG, TRACKING_CONFIG
+    CLASS_MAPPING, LABELBOX_PROJECT_ID,
+    YOLO_CONFIG, ensure_directories, get_workflow_directories
 )
 from pipeline.sightline_tracker import SightlineTracker
 from pipeline.tracking_manager import TrackingManager
-from utils.logger import setup_logger, log_data_row_action, safe_write_file, safe_write_json
+from utils.logger import setup_logger, log_data_row_action, safe_write_file
 
 class VideoCapture:
     """Enhanced video capture context manager for proper resource management"""
@@ -31,7 +34,7 @@ class VideoCapture:
 class DataProcessor:
     """Class to process Labelbox data and convert to YOLO format"""
     
-    def __init__(self, tracking_method: str = "sightline"):
+    def __init__(self, tracking_method: str = "botsort"):
         self.logger = setup_logger(self.__class__.__name__)
         ensure_directories()
         self.tracking_method = tracking_method.lower()
@@ -41,6 +44,9 @@ class DataProcessor:
         
         # Keep Sightline tracker for backward compatibility and extraction methods
         self.sightline_tracker = SightlineTracker()
+        
+        # Track current workflow directories for consistency
+        self.current_workflow_dirs = None
     
 # Old custom tracking methods removed - now using ByteTrack integration
     
@@ -84,6 +90,9 @@ class DataProcessor:
             True if successful, False otherwise
         """
         try:
+            # Add detailed logging for debugging
+            self.logger.debug(f"Extracting frame {frame_num} from {video_path.name} to {output_path}")
+            
             # Use context manager for proper resource cleanup
             with VideoCapture(video_path) as cap:
                 # Get total frames for validation
@@ -102,22 +111,23 @@ class DataProcessor:
                     
                     # Check if frame extraction was successful before writing
                     if cv2.imwrite(str(output_path), frame):
+                        self.logger.debug(f"Successfully extracted frame {frame_num} to {output_path}")
                         return True
                     else:
                         self.logger.error(f"Failed to write frame {frame_num} to {output_path}")
                         return False
                 else:
-                    self.logger.error(f"Could not read frame {frame_num}")
+                    self.logger.error(f"Could not read frame {frame_num} from video")
                     return False
                     
         except ValueError as e:
-            self.logger.error(str(e))
+            self.logger.error(f"ValueError extracting frame {frame_num}: {str(e)}")
             return False
         except Exception as e:
             self.logger.error(f"Error extracting frame {frame_num}: {str(e)}")
             return False
             
-    def process_labelbox_data(self, json_path: Path, video_path: Path, dataset_type: str = "train") -> bool:
+    def process_labelbox_data(self, json_path: Path, video_path: Path, dataset_type: str = "train", workflow_dirs: dict = None) -> bool:
         """
         Process Labelbox annotations and convert to YOLO format with enhanced error handling
         
@@ -155,6 +165,17 @@ class DataProcessor:
                     
             data_row_id = data['data_row']['id']
             self.logger.info(f"Processing data row: {data_row_id}")
+            
+            # Set workflow directories for consistent file paths
+            if workflow_dirs:
+                self.current_workflow_dirs = workflow_dirs
+                self.logger.info(f"Using provided workflow directories (workflow ID: {workflow_dirs.get('workflow_id', 'unknown')})")
+            else:
+                # Fallback - create new workflow (should not happen in normal flow)
+                from core.config import get_workflow_directories
+                self.current_workflow_dirs = get_workflow_directories(f"training_{data_row_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+                self.logger.warning("No workflow directories provided, created new ones")
+            
             log_data_row_action(data_row_id, "PROCESSING_STARTED")
             
             # Extract frame annotations
@@ -164,9 +185,11 @@ class DataProcessor:
             
             for label in labels:
                 annotations = label.get('annotations', {})
-                frames = annotations.get('frames', [])
-                for frame_data in frames:
-                    frame_num = frame_data['frameNumber']
+                frames = annotations.get('frames', {})
+                
+                # Handle frames as dictionary (key = frame number as string, value = frame data)
+                for frame_num_str, frame_data in frames.items():
+                    frame_num = int(frame_num_str)  # Convert string key to integer
                     frame_annotations[frame_num] = frame_data.get('objects', [])
 
             total_frames = len(frame_annotations)
@@ -186,9 +209,17 @@ class DataProcessor:
             # STEP 3: Generate frames and YOLO annotation files based on tracked detections
             self.logger.info("Step 3: Generating frames and YOLO annotations...")
             
-            # Set up output directories
-            images_dir = DATASET_DIR / dataset_type / 'images'
-            labels_dir = DATASET_DIR / dataset_type / 'labels'
+            # Use the current workflow directories passed from main workflow
+            # Don't create a new workflow - use the existing one to maintain consistency
+            workflow_dirs = self.current_workflow_dirs
+            
+            # Use workflow training directories
+            if dataset_type == 'train':
+                images_dir = workflow_dirs['training']['train_images']
+                labels_dir = workflow_dirs['training']['train_labels']
+            else:  # val
+                images_dir = workflow_dirs['training']['val_images']
+                labels_dir = workflow_dirs['training']['val_labels']
             images_dir.mkdir(parents=True, exist_ok=True)
             labels_dir.mkdir(parents=True, exist_ok=True)
             
@@ -204,6 +235,7 @@ class DataProcessor:
             successful_frames = 0
             frames_to_process = sorted(detections_by_frame.keys())
             
+            
             for frame_num in frames_to_process:
                 processed_frames += 1
                 
@@ -215,9 +247,12 @@ class DataProcessor:
                 # Extract frame from video
                 frame_filename = f"{data_row_id}_frame_{frame_num}.jpg"
                 frame_path = images_dir / frame_filename
+                    
                 
                 if not self.extract_frame(video_path, frame_num, frame_path):
+                    self.logger.warning(f"Failed to extract frame {frame_num}, skipping")
                     continue
+                
                 
                 # Create YOLO annotation file
                 label_filename = f"{data_row_id}_frame_{frame_num}.txt"
@@ -268,6 +303,9 @@ class DataProcessor:
                 f"Successful frames: {successful_frames}, Tracks: {num_unique_tracks}"
             )
             
+            # Store workflow_dirs for other methods to use
+            self.current_workflow_dirs = workflow_dirs
+            
             return successful_frames > 0  # Return True only if at least some frames were processed successfully
             
         except KeyboardInterrupt:
@@ -279,25 +317,29 @@ class DataProcessor:
                 log_data_row_action(data_row_id, "PROCESSING_ERROR", str(e))
             return False
     
-    def create_dataset_yaml(self) -> Path:
+    def create_dataset_yaml(self, workflow_dirs: dict) -> Optional[Path]:
         """
         Create YOLO dataset YAML configuration file with enhanced error handling
         
+        Args:
+            workflow_dirs: Workflow directories structure
+        
         Returns:
-            Path to the created YAML file
+            Path to created YAML file, None if failed
         """
+        
         try:
             # Reverse the class mapping for YAML
             class_names = {v: k for k, v in CLASS_MAPPING.items()}
             
             dataset_config = {
-                'path': str(DATASET_DIR.absolute()),
+                'path': str(workflow_dirs['training']['dataset'].absolute()),
                 'train': 'train/images',
                 'val': 'val/images',
                 'names': class_names
             }
             
-            yaml_path = DATASET_DIR / 'dataset.yaml'
+            yaml_path = workflow_dirs['training']['dataset'] / 'dataset.yaml'
             
             # Write YAML manually to avoid dependency - build content first
             yaml_content = f"path: {dataset_config['path']}\n"
@@ -317,12 +359,13 @@ class DataProcessor:
         except Exception as e:
             self.logger.error(f"Error creating dataset YAML: {str(e)}")
             raise
-    
-    def split_dataset(self, train_ratio: float = 0.8) -> bool:
+
+    def split_train_validation(self, workflow_dirs: dict, train_ratio: float = 0.8) -> bool:
         """
-        Split dataset into train and validation sets with enhanced error handling
+        Split training data into train/validation sets with enhanced error handling
         
         Args:
+            workflow_dirs: Workflow directories structure
             train_ratio: Ratio of data to use for training
             
         Returns:
@@ -332,10 +375,10 @@ class DataProcessor:
             import random
             import shutil
             
-            train_images_dir = DATASET_DIR / 'train' / 'images'
-            train_labels_dir = DATASET_DIR / 'train' / 'labels'
-            val_images_dir = DATASET_DIR / 'val' / 'images'
-            val_labels_dir = DATASET_DIR / 'val' / 'labels'
+            train_images_dir = workflow_dirs['training']['train_images']
+            train_labels_dir = workflow_dirs['training']['train_labels']
+            val_images_dir = workflow_dirs['training']['val_images']
+            val_labels_dir = workflow_dirs['training']['val_labels']
             
             # Create validation directories
             val_images_dir.mkdir(parents=True, exist_ok=True)
@@ -362,7 +405,7 @@ class DataProcessor:
                     val_img_path = val_images_dir / img_path.name
                     shutil.move(str(img_path), str(val_img_path))
                     
-                    # Move corresponding label if it exists
+                    # Move corresponding label file
                     label_name = img_path.stem + '.txt'
                     label_path = train_labels_dir / label_name
                     if label_path.exists():
@@ -371,13 +414,20 @@ class DataProcessor:
                     
                     moved_files += 1
                     
-                except Exception as e:
-                    self.logger.warning(f"Failed to move {img_path}: {str(e)}")
-                    # Continue with other files
+                except Exception as move_error:
+                    self.logger.warning(f"Failed to move {img_path.name}: {str(move_error)}")
             
-            self.logger.info(f"Dataset split: {len(image_files) - moved_files} train, {moved_files} val")
-            return moved_files > 0
+            total_images = len(image_files)
+            train_count = total_images - moved_files
+            val_count = moved_files
+            
+            self.logger.info(f"Train/validation split completed:")
+            self.logger.info(f"  Training images: {train_count}")
+            self.logger.info(f"  Validation images: {val_count}")
+            self.logger.info(f"  Split ratio: {train_count/total_images:.2f}/{val_count/total_images:.2f}")
+            
+            return True
             
         except Exception as e:
-            self.logger.error(f"Error splitting dataset: {str(e)}")
+            self.logger.error(f"Error in train/validation split: {str(e)}")
             return False 

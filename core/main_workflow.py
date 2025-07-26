@@ -9,7 +9,7 @@ from core.model_trainer import YOLOModelTrainer
 from pipeline.inference_runner import YOLOInferenceRunner
 from pipeline.annotation_importer import LabelboxAnnotationImporter
 from pipeline.data_manager import DataManager
-from core.config import ensure_directories, get_workflow_directories, INFERENCE_DIR
+from core.config import ensure_directories, get_workflow_directories
 from utils.logger import setup_logger
 
 class MainWorkflow:
@@ -54,7 +54,7 @@ class MainWorkflow:
             if model_name is None:
                 model_name = f"model_{self.workflow_id}"
             
-            results = {
+            training_results = {
                 'workflow_id': self.workflow_id,
                 'training_data_row_id': training_data_row_id,
                 'model_name': model_name,
@@ -71,10 +71,10 @@ class MainWorkflow:
             
             if not download_result or 'video' not in download_result or 'json' not in download_result:
                 self.logger.error("Failed to download training data")
-                results['steps']['download'] = {'success': False, 'error': 'Failed to download data'}
-                return results
+                training_results['steps']['download'] = {'success': False, 'error': 'Failed to download data'}
+                return training_results
             
-            results['steps']['download'] = {
+            training_results['steps']['download'] = {
                 'success': True,
                 'video_path': str(download_result['video']),
                 'json_path': str(download_result['json'])
@@ -82,79 +82,85 @@ class MainWorkflow:
             
             # Step 2: Process data and convert to YOLO format
             self.logger.info("Step 2: Processing data and converting to YOLO format")
+            # Get workflow directories and pass them to data processor
+            workflow_dirs = get_workflow_directories(self.workflow_id)
             processing_success = self.data_processor.process_labelbox_data(
                 json_path=download_result['json'],
                 video_path=download_result['video'],
-                dataset_type="train"
+                dataset_type="train",
+                workflow_dirs=workflow_dirs
             )
             
             if not processing_success:
                 self.logger.error("Failed to process training data")
-                results['steps']['processing'] = {'success': False, 'error': 'Failed to process data'}
-                return results
+                training_results['steps']['processing'] = {'success': False, 'error': 'Failed to process data'}
+                return training_results
             
-            # Split dataset
-            split_success = self.data_processor.split_dataset(train_ratio=0.8)
-            results['steps']['processing'] = {
-                'success': processing_success and split_success,
-                'split_success': split_success
-            }
-            
-            # Step 3: Create dataset YAML
+            # Step 3: Creating dataset configuration
             self.logger.info("Step 3: Creating dataset configuration")
-            dataset_yaml_path = self.data_processor.create_dataset_yaml()
-            results['steps']['dataset_config'] = {
-                'success': True,
-                'yaml_path': str(dataset_yaml_path)
-            }
+            # Use the same workflow_dirs that were used for data processing
+            dataset_yaml = self.data_processor.create_dataset_yaml(workflow_dirs)
             
-            # Step 4: Train model
-            self.logger.info("Step 4: Training YOLO model")
-            trained_model_path = self.model_trainer.train_model(
-                dataset_yaml_path=dataset_yaml_path,
+            if not dataset_yaml:
+                self.logger.error("Failed to create dataset configuration")
+                training_results['error'] = "Dataset configuration failed"
+                return training_results
+            
+            training_results['dataset_yaml'] = str(dataset_yaml)
+            
+            # Step 4: Split into train/validation sets
+            self.logger.info("Step 4: Splitting data into train/validation sets")
+            if not self.data_processor.split_train_validation(workflow_dirs):
+                self.logger.error("Failed to create train/validation split")
+                return training_results
+            
+            # Step 5: Train the model
+            self.logger.info("Step 5: Starting model training")
+            model_results = self.model_trainer.train_model(
+                dataset_yaml_path=dataset_yaml, 
                 model_name=model_name
             )
             
-            if not trained_model_path:
+            if not model_results:
                 self.logger.error("Failed to train model")
-                results['steps']['training'] = {'success': False, 'error': 'Training failed'}
-                return results
+                training_results['steps']['training'] = {'success': False, 'error': 'Training failed'}
+                return training_results
             
-            results['steps']['training'] = {
+            training_results['steps']['training'] = {
                 'success': True,
-                'model_path': str(trained_model_path)
+                'model_path': str(model_results)
             }
             
-            # Step 5: Validate model
-            self.logger.info("Step 5: Validating trained model")
+            # Step 6: Validate model
+            self.logger.info("Step 6: Validating trained model")
             validation_metrics = self.model_trainer.validate_model(
-                model_path=trained_model_path,
-                dataset_yaml_path=dataset_yaml_path
+                model_path=model_results,
+                dataset_yaml_path=dataset_yaml
             )
             
-            results['steps']['validation'] = {
+            training_results['steps']['validation'] = {
                 'success': validation_metrics is not None,
                 'metrics': validation_metrics
             }
             
-            # Step 6: Clean up training data
-            self.logger.info("Step 6: Cleaning up training data")
+            # Step 7: Clean up training data
+            self.logger.info("Step 7: Cleaning up training data")
             cleanup_success = self.data_manager.cleanup_training_data(
                 data_row_ids=[training_data_row_id],
                 keep_models=True
             )
             
-            results['steps']['cleanup'] = {'success': cleanup_success}
-            results['success'] = True
-            results['trained_model_path'] = str(trained_model_path)
+            training_results['steps']['cleanup'] = {'success': cleanup_success}
+            training_results['success'] = True
+            training_results['trained_model_path'] = str(model_results)
             
             self.logger.info(f"Training workflow completed successfully: {model_name}")
-            return results
+            return training_results
             
         except Exception as e:
             self.logger.error(f"Error in training workflow: {str(e)}")
-            results['steps']['error'] = {'success': False, 'error': str(e)}
-            return results
+            training_results['steps']['error'] = {'success': False, 'error': str(e)}
+            return training_results
     
     def run_complete_inference_workflow(
         self, 

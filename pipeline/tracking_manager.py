@@ -248,10 +248,17 @@ class TrackingManager:
             
             frame_count = 0
             for result in results:
-                if result.boxes is not None and result.boxes.id is not None:
-                    frame_annotations = self._extract_yolo_tracking_annotations(result, frame_count)
-                    if frame_annotations:
-                        all_annotations['frames'][frame_count] = frame_annotations
+                if result.boxes is not None:
+                    # Check if we have any valid detections with track IDs
+                    if result.boxes.id is not None and len(result.boxes.id) > 0:
+                        frame_annotations = self._extract_yolo_tracking_annotations(result, frame_count)
+                        if frame_annotations:
+                            all_annotations['frames'][frame_count] = frame_annotations
+                    else:
+                        # If no track IDs, try to extract detections without tracking
+                        frame_annotations = self._extract_frame_detections_with_tracking(result, frame_count)
+                        if frame_annotations:
+                            all_annotations['frames'][frame_count] = frame_annotations
                 frame_count += 1
             
             # Apply Valorant constraint: limit to top 10 unique tracks globally
@@ -640,6 +647,56 @@ class TrackingManager:
                 detections.append(detection)
         
         return detections
+
+    def _extract_frame_detections_with_tracking(self, result, frame_num: int) -> List[Dict[str, Any]]:
+        """Extract detections from YOLO result and assign temporary track IDs for tracking methods"""
+        annotations = []
+        
+        if result.boxes is not None:
+            boxes = result.boxes
+            
+            for i in range(len(boxes)):
+                # Get bounding box coordinates (xyxy format)
+                xyxy = boxes.xyxy[i].cpu().numpy()
+                x1, y1, x2, y2 = xyxy
+                
+                # Get confidence and class
+                confidence = float(boxes.conf[i].cpu().numpy())
+                class_id = int(boxes.cls[i].cpu().numpy())
+                
+                # Get class name
+                from core.config import REVERSE_CLASS_MAPPING
+                class_name = REVERSE_CLASS_MAPPING.get(class_id, f"class_{class_id}")
+                
+                # Calculate bounding box dimensions
+                left = float(x1)
+                top = float(y1)
+                width = float(x2 - x1)
+                height = float(y2 - y1)
+                
+                # Assign a temporary track ID (frame-based for uniqueness)
+                temp_track_id = frame_num * 1000 + i
+                
+                # Convert to annotation format
+                annotation = {
+                    'frame': frame_num,
+                    'class_id': class_id,
+                    'class_name': class_name,
+                    'confidence': confidence,
+                    'track_id': temp_track_id,
+                    'bounding_box': {
+                        'left': left,
+                        'top': top,
+                        'width': width,
+                        'height': height
+                    },
+                    'center_x': left + width / 2,
+                    'center_y': top + height / 2
+                }
+                
+                annotations.append(annotation)
+        
+        return annotations
     
     def _draw_annotation(self, frame: np.ndarray, annotation: Dict) -> None:
         """Draw annotation on frame"""
